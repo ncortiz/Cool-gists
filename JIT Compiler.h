@@ -29,7 +29,7 @@ It has a bunch of enums and methods for encoding x86-64 which also work for stan
 and it also has a pointer to the virtual adress space of the function which can then be called.
 In its current state it is able to compile programs with math expressions but cmp loops don't work.*/
 
-/*Some of the references I used:
+/* Some of the references i used
 
 	http://ref.x86asm.net/#column_flds
 	http://www.c-jump.com/CIS77/reference/ISA/index.html
@@ -37,7 +37,6 @@ In its current state it is able to compile programs with math expressions but cm
 	https://gist.github.com/mikesmullin/6259449
 	http://www.c-jump.com/CIS77/CPU/x86/lecture.html#X77_0140_encoding_add_ecx_eax
 	http://www.c-jump.com/CIS77/CPU/x86/lecture.html
-
 
 */
 
@@ -197,227 +196,6 @@ public:
 private:
 };
 
-class JITCompiler
-{
-private:
-	typedef long number;
-	std::string::const_iterator current_char;
-	JITEmitter emitter;
-	std::string program;
-	std::vector<number> data;
-	std::unordered_map<std::string, number> labels;
-	number test;
-
-public:
-	JITCompiler(const std::string& program)
-		: program(program)
-	{
-		data.push_back(0);
-	}
-
-	number scan()
-	{
-		if (!emitter.init())
-			throw std::string("Could not initialize x86-64 emitter");
-		current_char = program.begin();
-
-		number result = 0;
-		emitter.pre();
-		scan_stmt();
-
-		emitter.emit_instr_reg(emitter.pop_reg, emitter.eax);
-		emitter.emit_instr_ptr(emitter.move_from_eax, &result, sizeof(number*));
-		emitter.post();
-		emitter.execute();
-		return result;
-	}
-
-private:
-
-	void next_char()
-	{
-		if (current_char >= program.end() || *current_char == '\0')
-			throw std::string("Unexpected EOF");
-		current_char++;
-	}
-
-	void remove_ws()
-	{
-		while (*current_char == ' ' || *current_char == '\t' || *current_char == '\n')
-			next_char();
-	}
-
-	bool is_digit()
-	{
-		return *current_char <= '9' && *current_char >= '0';
-	}
-
-	void scan_literal()
-	{
-		number acc = 0;
-		while (is_digit())
-		{
-			acc = (acc * 10) + (*current_char - '0');
-			next_char();
-		}
-
-		std::cout << "[literal '" << acc << "']" << std::endl;
-		data.push_back(acc);
-		emitter.emit_instr_ptr(emitter.move_to_eax, &data[data.size() - 1], sizeof(number*));
-		emitter.emit_instr_reg(emitter.push_reg, emitter.eax);
-	}
-
-	bool is_identifier()
-	{
-		return (*current_char >= 'a' && *current_char <= 'z') || (*current_char >= 'A' && *current_char <= 'Z') || *current_char == '_';
-	}
-
-	std::pair<std::string, std::string> collect_identifier()
-	{
-		std::pair<std::string, std::string> res = { "", "" };
-
-		while (is_identifier() || is_digit())
-		{
-			res.first += *current_char;
-			res.second += toupper(*current_char);
-
-			next_char();
-		}
-		return res;
-	}
-
-	void scan_expr()
-	{
-		remove_ws();
-
-		if (!is_digit())
-			return;
-
-		scan_literal();
-
-		remove_ws();
-
-		if (*current_char != '+' && *current_char != '-')
-			return;
-
-		auto op = *current_char;
-		next_char();
-
-		remove_ws();
-
-		if (!is_digit())
-			throw std::string("Expected literal after operator");
-
-		scan_expr();
-
-		remove_ws();
-
-		std::cout << "[op '" << op << "']" << std::endl;
-
-		if (op == '+')
-		{
-			emitter.emit_instr_reg(emitter.pop_reg, emitter.edx);
-			emitter.emit_instr_reg(emitter.pop_reg, emitter.eax);
-			emitter.emit_instr_modregrm(emitter.add, emitter.add_ext, emitter.eax, emitter.edx);
-			emitter.emit_instr_reg(emitter.push_reg, emitter.eax);
-		}
-		else if (op == '-')
-		{
-			emitter.emit_instr_reg(emitter.pop_reg, emitter.edx);
-			emitter.emit_instr_reg(emitter.pop_reg, emitter.eax);
-			emitter.emit_instr_modregrm(emitter.sub, emitter.sub_ext, emitter.eax, emitter.edx);
-			emitter.emit_instr_reg(emitter.push_reg, emitter.eax);
-		}
-		else
-			throw std::string("Unimplemented operand ' ") + op + "' in expression";
-	}
-
-	void scan_stmt()
-	{
-		while (*current_char != '\0' && (current_char < program.end()))
-		{
-			remove_ws();
-			if (is_identifier())
-			{
-				auto identifier = collect_identifier();
-
-				if (identifier.second == "GOTO")
-				{
-					remove_ws();
-
-					if (!is_identifier())
-						throw std::string("Expected label to go to");
-
-					auto label = collect_identifier().first;
-					remove_ws();
-
-					auto found = labels.find(label);
-					if (found == labels.end())
-						throw std::string("Undefined label '") + label + "'";
-
-					emitter.emit_instr_ptr(emitter.move_to_eax, &labels[label], sizeof(number*));
-					emitter.emit_instr_modregrm(emitter.jmp, emitter.jmp_ext, emitter.eax);
-				}
-				else if (identifier.second == "LABEL")
-				{
-					remove_ws();
-
-					if (!is_identifier())
-						throw std::string("Expected label for definition");
-
-					auto label = collect_identifier().first;
-					std::cout << "[label '" << label << "': " << (uintptr_t)emitter.p << "]" << std::endl;
-					remove_ws();
-
-					if (labels.find(label) != labels.end())
-						throw std::string("Already defined label '") + label + "'";
-
-
-					labels[label] = (intptr_t)emitter.p;
-				}
-				else if (identifier.second == "clear")
-					emitter.emit_instr_modregrm(emitter.xor_, emitter.xor_ext, emitter.eax, emitter.eax);
-
-				else if (identifier.second == "JZ")
-				{
-					remove_ws();
-
-					if (!is_identifier())
-						throw std::string("Expected label to go to");
-
-					auto label = collect_identifier().first;
-					remove_ws();
-
-					auto found = labels.find(label);
-					if (found == labels.end())
-						throw std::string("Undefined label '") + label + "'";
-
-					emitter.emit_instr_reg(emitter.pop_reg, emitter.edx);
-					emitter.emit_instr_ptr(emitter.move_to_eax, &data[0], sizeof(number*)); //0
-					emitter.emit_instr_modregrm(emitter.cmp, emitter.cmp_ext, emitter.eax, emitter.edx);
-					auto offset = (uintptr_t)emitter.p - labels[label];
-					std::cout << "jrel " << offset << std::endl;
-					data.push_back(offset);
-					emitter.emit_instr_ptr(emitter.move_to_eax, &data[data.size() - 1], sizeof(number*));
-
-					emitter.emit_instr_modregrm(0x0F, 0x8c, emitter.eax, emitter.eax); //TODO: FIGURE OUT WHAT ADDRESS TO JUMP TO UNK
-
-				}
-				else
-					throw std::string("Unknown keyword '" + identifier.second + "'");
-			}
-			else
-				scan_expr();
-
-			remove_ws();
-			if (*current_char != ';')
-				throw std::string("Expected ';'");
-			next_char();
-		}
-	}
-
-};
-
 int main()
 {
 	JITEmitter emitter;
@@ -465,8 +243,4 @@ int main()
 	emitter.execute();
 
 	printf("=%i\n", res1);
-
-	//JITCompiler tester("label test; 0; jz test;");
-
-	//std::cout << "x = " << tester.scan () << std::endl;
 }
