@@ -1,8 +1,8 @@
 /*
 This code is a simple example of a program that can encode x86 instructions and run them on runtime (Just in time compiler technically).
 I tried to implement a simple parser for math expressions but doesn't completely work.
-Code below works (I think) and generates x86 instructions for a bunch of simple math operations and puts them in virtual memory space
-of function which then gets called with one of the parameters being a pointer so we can retrieve result(s)
+Code below works (tested) and generates x86 instructions for a bunch of simple math operations and puts them in virtual memory space
+of function which then gets called with one of the parameters being a pointer so we can retrieve result which is 8.
 */
 
 //Mit License
@@ -408,7 +408,7 @@ private:
 
 int main ()
 {
-	/*JITEmitter emitter;
+	JITEmitter emitter;
 	if (!emitter.init ())
 		return -1;
 	int arg1;
@@ -426,21 +426,22 @@ int main ()
 	emitter.emit_instr_reg (emitter.pop_reg, emitter.edx);
 	emitter.emit_instr_modregrm (emitter.imul, emitter.imul_ext, emitter.eax, emitter.edx);
 	emitter.emit_instr_reg (emitter.pop_reg, emitter.edx);
-	emitter.emit_instr_modregrm (emitter.idiv, emitter.idiv_ext, emitter.eax, emitter.edx);*/
+	emitter.emit_instr_modregrm (emitter.idiv, emitter.idiv_ext, emitter.eax, emitter.edx);
 
-	//emitter.emit_instr_ptr (emitter.move_to_eax, &arg2, sizeof (int*));
-	//emitter.emit_instr_reg (emitter.push_reg, emitter.eax);
+	emitter.emit_instr_ptr (emitter.move_to_eax, &arg2, sizeof (int*));
+	emitter.emit_instr_reg (emitter.push_reg, emitter.eax);
 
-	//emitter.emit_instr_ptr (emitter.move_to_eax, &arg1, sizeof (int*));
+	emitter.emit_instr_ptr (emitter.move_to_eax, &arg1, sizeof (int*));
 
-	//emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
-	//emitter.emit_instr_ptr (emitter.move_to_eax, &arg2, sizeof (int*)); 
-	//emitter.emit_instr_modregrm (emitter.imul, emitter.imul_ext, emitter.eax, emitter.edx);
-	//emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
+	emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
+	emitter.emit_instr_ptr (emitter.move_to_eax, &arg2, sizeof (int*)); 
+	emitter.emit_instr_modregrm (emitter.imul, emitter.imul_ext, emitter.eax, emitter.edx);
+	emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
 
-	//emitter.emit_instr_ptr (emitter.move_to_eax, &arg3, sizeof (int*));
-	//emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
-	//emitter.emit_instr_modregrm (emitter.idiv, emitter.idiv_ext, emitter.eax, emitter.edx);
+	emitter.emit_instr_ptr (emitter.move_to_eax, &arg3, sizeof (int*));
+	emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
+	emitter.emit_instr_modregrm (emitter.idiv, emitter.idiv_ext, emitter.eax, emitter.edx);
+	
 	//http://ref.x86asm.net/#column_flds
 	//http://www.c-jump.com/CIS77/reference/ISA/index.html
 	//http://ref.x86asm.net/coder64.html#x0FA1
@@ -449,18 +450,18 @@ int main ()
 	//http://www.c-jump.com/CIS77/CPU/x86/lecture.html
 
 
-	//emitter.emit_instr_reg (emitter.pop_reg, emitter.eax);
+	emitter.emit_instr_reg (emitter.pop_reg, emitter.eax);
 
 
-	//emitter.emit_instr_ptr (emitter.move_from_eax, &res1, sizeof (long*));
-	//emitter.post ();
+	emitter.emit_instr_ptr (emitter.move_from_eax, &res1, sizeof (long*));
+	emitter.post ();
 
-	//arg1 = 8; arg2 = 8; arg3 = 2; res1 = 0;
-	//emitter.execute ();
+	arg1 = 8; arg2 = 8; arg3 = 2; res1 = 0;
+	emitter.execute ();
 
-	//printf ("=%i\n", res1);
+	printf ("=%i\n", res1);
 
-	JITCompiler tester("label test; 0; jz test;");
+	//JITCompiler tester("label test; 0; jz test;");
 
-	std::cout << "x = " << tester.scan () << std::endl;
+	//std::cout << "x = " << tester.scan () << std::endl;
 }
