@@ -1,7 +1,8 @@
 /*
 This code is a simple example of a program that can encode x86 instructions and run them on runtime (Just in time compiler technically).
-Code below works (tested) and generates x86 instructions for a bunch of simple math, register and stack operations and puts them in virtual memory space
-of function which then gets called with one of the parameters being a pointer so we can retrieve result which is 8.
+I tried to implement a simple parser for math expressions but doesn't completely work.
+Code below works (I think) and generates x86 instructions for a bunch of simple math operations and puts them in virtual memory space
+of function which then gets called with one of the parameters being a pointer so we can retrieve result(s)
 */
 
 //Mit License
@@ -19,8 +20,8 @@ typedef unsigned char byte;
 //Everything is written around Win32 VirtualAllocEx function (see down below) this function can allow us to allocate data onto virtual memory and write/read onto/from it. 
 //Then we can cast a pointer to it into a function ptr and call it like a function. 
 
-/* By inserting x86 machine code into the virtual address space of a function in Windows 
-we can use the function to cause the CPU to run whatever instructions we want (to some extent). 
+/* By inserting x86 machine code into the virtual address space of a function in Windows
+we can use the function to cause the CPU to run whatever instructions we want (to some extent).
 This file contains a WIP program that compiles into machine code which is inserted
 into the adress space of a function (using Win32 api) and then the function is called,
 running the code. This allows us to compile and run machine code on realtime hence JIT.
@@ -28,13 +29,25 @@ It has a bunch of enums and methods for encoding x86-64 which also work for stan
 and it also has a pointer to the virtual adress space of the function which can then be called.
 In its current state it is able to compile programs with math expressions but cmp loops don't work.*/
 
+/*Some of the references I used:
+
+	http://ref.x86asm.net/#column_flds
+	http://www.c-jump.com/CIS77/reference/ISA/index.html
+	http://ref.x86asm.net/coder64.html#x0FA1
+	https://gist.github.com/mikesmullin/6259449
+	http://www.c-jump.com/CIS77/CPU/x86/lecture.html#X77_0140_encoding_add_ecx_eax
+	http://www.c-jump.com/CIS77/CPU/x86/lecture.html
+
+
+*/
+
 class JITEmitter
 {
 
 public:
-	bool init ()
+	bool init()
 	{
-		buff = (byte*)VirtualAllocEx (GetCurrentProcess (), 0, 1 << 16, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		buff = (byte*)VirtualAllocEx(GetCurrentProcess(), 0, 1 << 16, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 		p = buff;
 		if (buff == 0)
 			return false;
@@ -120,54 +133,54 @@ public:
 		swap_edx_eax = 0x92
 	};
 
-	void emit_instr_modregrm (uint8_t op, uint8_t ext, reg src, reg dst)
+	void emit_instr_modregrm(uint8_t op, uint8_t ext, reg src, reg dst)
 	{
 		*p++ = op;
 		*p++ = (RegAdressing & 0x7) << 6 | ((src + ext) & 0x7) << 3 | dst & 0x7;
 	}
 
-	void emit_instr_modregrm (op_modregrm op, ext_modregrm ext, reg src, reg dst)
+	void emit_instr_modregrm(op_modregrm op, ext_modregrm ext, reg src, reg dst)
 	{
 		*p++ = op;
 		*p++ = (RegAdressing & 0x7) << 6 | ((src + ext) & 0x7) << 3 | dst & 0x7;
 	}
 
-	void emit_instr_modregrm (op_modregrm op, ext_modregrm ext, reg src)
+	void emit_instr_modregrm(op_modregrm op, ext_modregrm ext, reg src)
 	{
 		*p++ = op;
 		*p++ = (RegAdressing & 0x7) << 6 | ((src + ext) & 0x7) << 3;
 	}
 
-	void emit_instr_reg (op_reg op, reg r)
+	void emit_instr_reg(op_reg op, reg r)
 	{
 		*p++ = op + r;
 	}
 
-	void emit_instr_ptr (op_ptr op, void* ptr, size_t sz_ptr)
+	void emit_instr_ptr(op_ptr op, void* ptr, size_t sz_ptr)
 	{
 		*p++ = op;
 		(void*&)p[0] = ptr; p += sz_ptr;
 	}
 
-	void emit (byte b)
+	void emit(byte b)
 	{
 		*p++ = b;
 	}
 
-	void pre ()
+	void pre()
 	{
 		*p++ = 0x50; // push eax
 		*p++ = 0x52; // push edx
 	}
 
-	void post ()
+	void post()
 	{
 		*p++ = 0x5A; // pop edx
 		*p++ = 0x58; // pop eax
 		*p++ = 0xC3; // ret
 	}
 
-	void execute ()
+	void execute()
 	{
 		//cast buff into func ptr and call it
 		union funcptr {
@@ -176,7 +189,7 @@ public:
 		} func;
 
 		func.y = buff;
-		func.x ();
+		func.x();
 	}
 
 	byte* buff;
@@ -184,58 +197,276 @@ public:
 private:
 };
 
-int main ()
+class JITCompiler
+{
+private:
+	typedef long number;
+	std::string::const_iterator current_char;
+	JITEmitter emitter;
+	std::string program;
+	std::vector<number> data;
+	std::unordered_map<std::string, number> labels;
+	number test;
+
+public:
+	JITCompiler(const std::string& program)
+		: program(program)
+	{
+		data.push_back(0);
+	}
+
+	number scan()
+	{
+		if (!emitter.init())
+			throw std::string("Could not initialize x86-64 emitter");
+		current_char = program.begin();
+
+		number result = 0;
+		emitter.pre();
+		scan_stmt();
+
+		emitter.emit_instr_reg(emitter.pop_reg, emitter.eax);
+		emitter.emit_instr_ptr(emitter.move_from_eax, &result, sizeof(number*));
+		emitter.post();
+		emitter.execute();
+		return result;
+	}
+
+private:
+
+	void next_char()
+	{
+		if (current_char >= program.end() || *current_char == '\0')
+			throw std::string("Unexpected EOF");
+		current_char++;
+	}
+
+	void remove_ws()
+	{
+		while (*current_char == ' ' || *current_char == '\t' || *current_char == '\n')
+			next_char();
+	}
+
+	bool is_digit()
+	{
+		return *current_char <= '9' && *current_char >= '0';
+	}
+
+	void scan_literal()
+	{
+		number acc = 0;
+		while (is_digit())
+		{
+			acc = (acc * 10) + (*current_char - '0');
+			next_char();
+		}
+
+		std::cout << "[literal '" << acc << "']" << std::endl;
+		data.push_back(acc);
+		emitter.emit_instr_ptr(emitter.move_to_eax, &data[data.size() - 1], sizeof(number*));
+		emitter.emit_instr_reg(emitter.push_reg, emitter.eax);
+	}
+
+	bool is_identifier()
+	{
+		return (*current_char >= 'a' && *current_char <= 'z') || (*current_char >= 'A' && *current_char <= 'Z') || *current_char == '_';
+	}
+
+	std::pair<std::string, std::string> collect_identifier()
+	{
+		std::pair<std::string, std::string> res = { "", "" };
+
+		while (is_identifier() || is_digit())
+		{
+			res.first += *current_char;
+			res.second += toupper(*current_char);
+
+			next_char();
+		}
+		return res;
+	}
+
+	void scan_expr()
+	{
+		remove_ws();
+
+		if (!is_digit())
+			return;
+
+		scan_literal();
+
+		remove_ws();
+
+		if (*current_char != '+' && *current_char != '-')
+			return;
+
+		auto op = *current_char;
+		next_char();
+
+		remove_ws();
+
+		if (!is_digit())
+			throw std::string("Expected literal after operator");
+
+		scan_expr();
+
+		remove_ws();
+
+		std::cout << "[op '" << op << "']" << std::endl;
+
+		if (op == '+')
+		{
+			emitter.emit_instr_reg(emitter.pop_reg, emitter.edx);
+			emitter.emit_instr_reg(emitter.pop_reg, emitter.eax);
+			emitter.emit_instr_modregrm(emitter.add, emitter.add_ext, emitter.eax, emitter.edx);
+			emitter.emit_instr_reg(emitter.push_reg, emitter.eax);
+		}
+		else if (op == '-')
+		{
+			emitter.emit_instr_reg(emitter.pop_reg, emitter.edx);
+			emitter.emit_instr_reg(emitter.pop_reg, emitter.eax);
+			emitter.emit_instr_modregrm(emitter.sub, emitter.sub_ext, emitter.eax, emitter.edx);
+			emitter.emit_instr_reg(emitter.push_reg, emitter.eax);
+		}
+		else
+			throw std::string("Unimplemented operand ' ") + op + "' in expression";
+	}
+
+	void scan_stmt()
+	{
+		while (*current_char != '\0' && (current_char < program.end()))
+		{
+			remove_ws();
+			if (is_identifier())
+			{
+				auto identifier = collect_identifier();
+
+				if (identifier.second == "GOTO")
+				{
+					remove_ws();
+
+					if (!is_identifier())
+						throw std::string("Expected label to go to");
+
+					auto label = collect_identifier().first;
+					remove_ws();
+
+					auto found = labels.find(label);
+					if (found == labels.end())
+						throw std::string("Undefined label '") + label + "'";
+
+					emitter.emit_instr_ptr(emitter.move_to_eax, &labels[label], sizeof(number*));
+					emitter.emit_instr_modregrm(emitter.jmp, emitter.jmp_ext, emitter.eax);
+				}
+				else if (identifier.second == "LABEL")
+				{
+					remove_ws();
+
+					if (!is_identifier())
+						throw std::string("Expected label for definition");
+
+					auto label = collect_identifier().first;
+					std::cout << "[label '" << label << "': " << (uintptr_t)emitter.p << "]" << std::endl;
+					remove_ws();
+
+					if (labels.find(label) != labels.end())
+						throw std::string("Already defined label '") + label + "'";
+
+
+					labels[label] = (intptr_t)emitter.p;
+				}
+				else if (identifier.second == "clear")
+					emitter.emit_instr_modregrm(emitter.xor_, emitter.xor_ext, emitter.eax, emitter.eax);
+
+				else if (identifier.second == "JZ")
+				{
+					remove_ws();
+
+					if (!is_identifier())
+						throw std::string("Expected label to go to");
+
+					auto label = collect_identifier().first;
+					remove_ws();
+
+					auto found = labels.find(label);
+					if (found == labels.end())
+						throw std::string("Undefined label '") + label + "'";
+
+					emitter.emit_instr_reg(emitter.pop_reg, emitter.edx);
+					emitter.emit_instr_ptr(emitter.move_to_eax, &data[0], sizeof(number*)); //0
+					emitter.emit_instr_modregrm(emitter.cmp, emitter.cmp_ext, emitter.eax, emitter.edx);
+					auto offset = (uintptr_t)emitter.p - labels[label];
+					std::cout << "jrel " << offset << std::endl;
+					data.push_back(offset);
+					emitter.emit_instr_ptr(emitter.move_to_eax, &data[data.size() - 1], sizeof(number*));
+
+					emitter.emit_instr_modregrm(0x0F, 0x8c, emitter.eax, emitter.eax); //TODO: FIGURE OUT WHAT ADDRESS TO JUMP TO UNK
+
+				}
+				else
+					throw std::string("Unknown keyword '" + identifier.second + "'");
+			}
+			else
+				scan_expr();
+
+			remove_ws();
+			if (*current_char != ';')
+				throw std::string("Expected ';'");
+			next_char();
+		}
+	}
+
+};
+
+int main()
 {
 	JITEmitter emitter;
-	if (!emitter.init ())
+	if (!emitter.init())
 		return -1;
 	int arg1;
 	int arg2;
 	int res1;
 	int arg3;
-	emitter.pre ();
-	emitter.emit_instr_ptr (emitter.move_to_eax, &arg3, sizeof (int*));
-	emitter.emit_instr_reg (emitter.push_reg, emitter.eax);
-	emitter.emit_instr_ptr (emitter.move_to_eax, &arg2, sizeof (int*));
-	emitter.emit_instr_reg (emitter.push_reg, emitter.eax);
-	emitter.emit_instr_ptr (emitter.move_to_eax, &arg1, sizeof (int*));
-	emitter.emit_instr_reg (emitter.push_reg, emitter.eax);
-	emitter.emit_instr_reg (emitter.pop_reg, emitter.eax);
-	emitter.emit_instr_reg (emitter.pop_reg, emitter.edx);
-	emitter.emit_instr_modregrm (emitter.imul, emitter.imul_ext, emitter.eax, emitter.edx);
-	emitter.emit_instr_reg (emitter.pop_reg, emitter.edx);
-	emitter.emit_instr_modregrm (emitter.idiv, emitter.idiv_ext, emitter.eax, emitter.edx);
+	emitter.pre(); //function prologue
+	emitter.emit_instr_ptr(emitter.move_to_eax, &arg3, sizeof(int*)); //mov eax, arg3
+	emitter.emit_instr_reg(emitter.push_reg, emitter.eax);  //push eax
+	emitter.emit_instr_ptr(emitter.move_to_eax, &arg2, sizeof(int*)); //mov  eax, arg2
+	emitter.emit_instr_reg(emitter.push_reg, emitter.eax); //push eax
+	emitter.emit_instr_ptr(emitter.move_to_eax, &arg1, sizeof(int*)); //mov eax, arg1
+	emitter.emit_instr_reg(emitter.push_reg, emitter.eax); //push eax
 
-	emitter.emit_instr_ptr (emitter.move_to_eax, &arg2, sizeof (int*));
-	emitter.emit_instr_reg (emitter.push_reg, emitter.eax);
+	emitter.emit_instr_reg(emitter.pop_reg, emitter.eax); //pop eax(arg3 into eax)
+	emitter.emit_instr_reg(emitter.pop_reg, emitter.edx); //pop edx(arg2 into edx)
+	emitter.emit_instr_modregrm(emitter.imul, emitter.imul_ext, emitter.eax, emitter.edx); //imul eax, edx (into eax)
+	emitter.emit_instr_reg(emitter.pop_reg, emitter.edx); //pop edx(arg1 into edx)
+	emitter.emit_instr_modregrm(emitter.idiv, emitter.idiv_ext, emitter.eax, emitter.edx); //idiv eax, edx (into eax)
 
-	emitter.emit_instr_ptr (emitter.move_to_eax, &arg1, sizeof (int*));
+	emitter.emit_instr_ptr(emitter.move_to_eax, &arg2, sizeof(int*)); //move arg2 into eax
+	emitter.emit_instr_reg(emitter.push_reg, emitter.eax); //push eax
 
-	emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
-	emitter.emit_instr_ptr (emitter.move_to_eax, &arg2, sizeof (int*)); 
-	emitter.emit_instr_modregrm (emitter.imul, emitter.imul_ext, emitter.eax, emitter.edx);
-	emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
+	emitter.emit_instr_ptr(emitter.move_to_eax, &arg1, sizeof(int*)); //move arg1 into eax
 
-	emitter.emit_instr_ptr (emitter.move_to_eax, &arg3, sizeof (int*));
-	emitter.emit_instr_reg (emitter.swap_reg_eax, emitter.edx);
-	emitter.emit_instr_modregrm (emitter.idiv, emitter.idiv_ext, emitter.eax, emitter.edx);
-	
-	//http://ref.x86asm.net/#column_flds
-	//http://www.c-jump.com/CIS77/reference/ISA/index.html
-	//http://ref.x86asm.net/coder64.html#x0FA1
-	//https://gist.github.com/mikesmullin/6259449
-	//http://www.c-jump.com/CIS77/CPU/x86/lecture.html#X77_0140_encoding_add_ecx_eax
-	//http://www.c-jump.com/CIS77/CPU/x86/lecture.html
+	emitter.emit_instr_reg(emitter.swap_reg_eax, emitter.edx); //swap edx, eax
+	emitter.emit_instr_ptr(emitter.move_to_eax, &arg2, sizeof(int*)); //move eax, arg2
+	emitter.emit_instr_modregrm(emitter.imul, emitter.imul_ext, emitter.eax, emitter.edx); //imul eax, edx
+	emitter.emit_instr_reg(emitter.swap_reg_eax, emitter.edx); //swap eax, edx
+
+	emitter.emit_instr_ptr(emitter.move_to_eax, &arg3, sizeof(int*)); //mov eax, arg3
+	emitter.emit_instr_reg(emitter.swap_reg_eax, emitter.edx); //swap eax, edx
+	emitter.emit_instr_modregrm(emitter.idiv, emitter.idiv_ext, emitter.eax, emitter.edx); //idiv eax, edx (into eax)
+
+	emitter.emit_instr_reg(emitter.pop_reg, emitter.eax); //pop eax (result into eax)
 
 
-	emitter.emit_instr_reg (emitter.pop_reg, emitter.eax);
-
-
-	emitter.emit_instr_ptr (emitter.move_from_eax, &res1, sizeof (long*));
-	emitter.post ();
+	emitter.emit_instr_ptr(emitter.move_from_eax, &res1, sizeof(long*)); //mov ptr, eax (from eax into ptr)
+	emitter.post(); //function epilogue
 
 	arg1 = 8; arg2 = 8; arg3 = 2; res1 = 0;
-	emitter.execute ();
+	emitter.execute();
 
-	printf ("=%i\n", res1);
+	printf("=%i\n", res1);
+
+	//JITCompiler tester("label test; 0; jz test;");
+
+	//std::cout << "x = " << tester.scan () << std::endl;
 }
