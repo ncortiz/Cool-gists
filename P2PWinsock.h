@@ -6,6 +6,8 @@
 //Once they get it they'll send the same message again
 //If at some point they disconnect they'll try 10 times to reconnect.
 //They'll wait 500ms interval before sending messages and/or between reconnection attempts.
+//Also they'll assign themselves a random number as ID so you can identify each peer. 
+//This ID will be shown when receiving messages ("Message from #") and on the title screen of each peer's console window.
 
 //To use it follow the prompt and enter a port to connect to (computer to connect to) and a port to receive at (on computer is running on)
 //Note that you will need to modify IP to choose what computer to connect to below (see line 127)
