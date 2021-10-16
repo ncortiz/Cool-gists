@@ -17,7 +17,7 @@ of function which then gets called with one of the parameters being a pointer so
 #include <utility>
 typedef unsigned char byte;
 
-//Everything is written around Win32 VirtualAllocEx function (see down below) this functions can allow us to allocate data onto virtual memory and write/read onto/from it. 
+//Everything is written around Win32 VirtualAllocEx function (see down below) this function can allow us to allocate data onto virtual memory and write/read onto/from it. 
 //Then we can cast a pointer to it into a function ptr and call it like a function. 
 
 /* By inserting x86 machine code into the virtual address space of a function in Windows 
