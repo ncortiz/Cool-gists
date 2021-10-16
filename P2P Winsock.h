@@ -4,6 +4,8 @@
 //First both will try and send the message at more and less the same time
 //Then they'll each wait until they get a response
 //Once they get it they'll send the same message again
+//If at some point they disconnect they'll try 10 times to reconnect.
+
 //To use it follow the prompt and enter a port to connect to (computer to connect to) and a port to receive at (on computer is running on)
 //Note that you will need to modify IP to choose what computer to connect to below (see line 127)
 
