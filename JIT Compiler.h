@@ -1,6 +1,6 @@
 /*
 This code is a simple example of a program that can encode x86 instructions and run them on runtime (Just in time compiler technically).
-Code below works (tested) and generates x86 instructions for a bunch of simple math operations and puts them in virtual memory space
+Code below works (tested) and generates x86 instructions for a bunch of simple math, register and stack operations and puts them in virtual memory space
 of function which then gets called with one of the parameters being a pointer so we can retrieve result which is 8.
 */
 
